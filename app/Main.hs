@@ -2,6 +2,8 @@ module Main where
 
 import Data.Char
 import Debug.Trace
+import Text.ParserCombinators.ReadP
+import Control.Monad
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
@@ -17,57 +19,74 @@ data Token = Open | Close | Str String
   deriving (Eq, Show)
 
 tokenize :: String -> [Token]
-tokenize [] = []
-tokenize str@(c:rest) =
-  case c of
-    '(' -> Open : tokenize rest
-    ')' -> Close : tokenize rest
-    _ | isSpace c -> tokenize rest
-      | otherwise ->
-          let (front, back) = splitWhile (\c -> not $ isSpace c || elem c "()") str
-          in Str front : tokenize back
-
-data AST = Cons AST AST | Nil | Symbol String
-  deriving (Show)
-
-r :: [Token] -> AST
-r = snd . go
+tokenize str = head [match | (match, "") <- readP_to_S parser str]
   where
-    go :: [Token] -> ([Token], AST)
-    go (Str string:rest) = (rest, Symbol string)
-    go (Open:rest) =
-      let (rest', globbed) = goGlob rest
-      in
-      (rest', foldr Cons Nil globbed)
+    parser :: ReadP [Token]
+    parser = between skipSpaces skipSpaces $ sepBy (choice [symbol, open, close]) skipSpaces
 
-    goGlob :: [Token] -> ([Token], [AST])
-    goGlob (Close:rest) = (rest, [])
-    goGlob toks =
-      let (rest, ast) = go toks
-      in
-      (ast :) <$> goGlob rest
+    symbol, open, close :: ReadP Token
+    symbol = Str <$> munch1 isAlphaNum
+    open = char '(' >> pure Open
+    close = char ')' >> pure Close
+
+data AST = AST ::: AST | Nil | Symbol String
+  deriving (Show, Eq)
+
+flatten :: AST -> [AST]
+flatten (head ::: tail) = head : flatten tail
+flatten tail = [tail]
+
+infixr :::
+
+r :: String -> AST
+r str = head [match | (match, "") <- readP_to_S parser str]
+  where
+    parser :: ReadP AST
+    parser = choice [atom, list]
+
+    atom :: ReadP AST
+    atom = Symbol . map toLower <$> munch1 isAlphaNum
+
+    list :: ReadP AST
+    list = do
+      between skipSpaces skipSpaces $ char '('
+      elements <- sepBy parser skipSpaces
+      between skipSpaces skipSpaces $ char ')'
+      pure $ foldr (:::) Nil elements
 
 e :: AST -> AST
-e (Cons (Symbol "Cons") rest) = rest
-e (Cons (Symbol "Atom") (Cons (Cons _ _) _)) = Nil
-e (Cons (Symbol "Atom") (Cons _ _)) = Symbol "T"
-e (Cons (Symbol "Cond") rest) =
-  let try (Cons (Cons pred (Cons body _)) rest) =
+e (Symbol "cons" ::: l ::: r ::: Nil) = e l ::: e r
+e (Symbol "atom" ::: arg ::: Nil) =
+  case e arg of
+    _ ::: _ -> Nil
+    _ -> Symbol "T"
+e (Symbol "cond" ::: rest) =
+  let try ((pred ::: body ::: _) ::: rest) =
         case e pred of
           Nil -> try rest
           _ -> e body
       try Nil = Nil
-      try _ = error "Invalid form passed to Cond"
+      try branches = error $ "Tried to cond branches: " ++ p branches
   in
   try rest
-e (Cons (Symbol "Car") (Cons car _)) = car
-e (Cons (Symbol "Cdr") (Cons _ cdr)) = cdr
+e (Symbol "car" ::: arg ::: Nil) =
+  case e arg of
+    l ::: _ -> l
+    expr -> error $ "Tried to car expression: " ++ p expr
+e (Symbol "cdr" ::: arg ::: Nil) =
+  case e arg of
+    _ ::: r -> r
+    expr -> error $ "Tried to cdr expression: " ++ p expr
+e (Symbol "quote" ::: arg ::: Nil) = arg
 e sym@(Symbol _) = sym
 e sym@Nil = sym
 e exp = error $ "Got " ++ show exp
---e (Cons (Cons (Symbol "Lambda") names) args) =
 
 p :: AST -> String
-p (Cons car cdr) = "(" ++ p car ++ " . " ++ p cdr ++ ")"
+p (car ::: cdr) = "(" ++ p car ++ plist cdr
+  where
+    plist Nil = ")"
+    plist (x ::: rest) = " " ++ p x ++ plist rest
+    plist x = " . " ++ p x ++ ")"
 p Nil = "()"
 p (Symbol str) = str
