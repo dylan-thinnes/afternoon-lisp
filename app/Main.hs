@@ -4,9 +4,18 @@ import Data.Char
 import Debug.Trace
 import Text.ParserCombinators.ReadP
 import Control.Monad
+import Control.Applicative
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
+
+errIf :: String -> Bool -> Either String ()
+errIf mess True = Left mess
+errIf _ False = pure ()
+
+(!) = flip errIf
+
+infixr 1 !
 
 splitWhile :: (a -> Bool) -> [a] -> ([a], [a])
 splitWhile pred as =
@@ -55,32 +64,64 @@ r str = head [match | (match, "") <- readP_to_S parser str]
       pure $ foldr (:::) Nil elements
 
 e :: AST -> AST
-e (Symbol "cons" ::: l ::: r ::: Nil) = e l ::: e r
-e (Symbol "atom" ::: arg ::: Nil) =
-  case e arg of
-    _ ::: _ -> Nil
-    _ -> Symbol "T"
-e (Symbol "cond" ::: rest) =
-  let try ((pred ::: body ::: _) ::: rest) =
-        case e pred of
-          Nil -> try rest
-          _ -> e body
-      try Nil = Nil
-      try branches = error $ "Tried to cond branches: " ++ p branches
-  in
-  try rest
-e (Symbol "car" ::: arg ::: Nil) =
-  case e arg of
-    l ::: _ -> l
-    expr -> error $ "Tried to car expression: " ++ p expr
-e (Symbol "cdr" ::: arg ::: Nil) =
-  case e arg of
-    _ ::: r -> r
-    expr -> error $ "Tried to cdr expression: " ++ p expr
-e (Symbol "quote" ::: arg ::: Nil) = arg
+e ast
+  | Just result <- tryBuiltins ast
+  = case result of
+      Left err -> error err
+      Right ast -> ast
 e sym@(Symbol _) = sym
 e sym@Nil = sym
 e exp = error $ "Got " ++ show exp
+
+data Builtin = Builtin { name :: String, cardinality :: Int, handler :: [AST] -> AST }
+
+run :: AST -> Builtin -> Maybe (Either String AST)
+run (Symbol call ::: args) builtin
+  | call == name builtin
+  = Just $ do
+    let argList = flatten args
+    let argCount = length argList - 1
+    argCount /= cardinality builtin !
+      "Wrong number of args (expected " ++ show argCount ++ ", got " ++ show (cardinality builtin) ++ ")"
+    last argList /= Nil !
+      "Non-list args (does not end in Nil)"
+    pure $ handler builtin (init argList)
+run _ _ = Nothing
+
+builtins :: [Builtin]
+builtins = [cons, atom, quote, car, cdr, cond]
+  where
+  cons', atom', quote', car', cdr' :: [AST] -> AST
+  cons' [arg1, arg2] = e arg1 ::: e arg2
+  atom' [_ ::: _] = Nil
+  atom' [_] = Symbol "T"
+  quote' [arg] = arg
+  car' [arg] = case e arg of
+                 first ::: second -> first
+                 _ -> error "car: argument is not a tuple"
+  cdr' [arg] = case e arg of
+                 first ::: second -> second
+                 _ -> error "cdr: argument is not a tuple"
+  cond' [conditions] =
+    let try ((pred ::: body ::: _) ::: rest) =
+          case e pred of
+            Nil -> try rest
+            _ -> e body
+        try Nil = Nil
+        try branches = error $ "Tried to cond branches: " ++ p branches
+    in
+    try conditions
+
+  cons, atom, quote, car, cdr, cond :: Builtin
+  cons = Builtin "cons" 2 cons'
+  atom = Builtin "atom" 1 atom'
+  quote = Builtin "quote" 1 quote'
+  car = Builtin "car" 1 car'
+  cdr = Builtin "cdr" 1 cdr'
+  cond = Builtin "cond" 1 cond'
+
+tryBuiltins :: AST -> Maybe (Either String AST)
+tryBuiltins ast = foldr (<|>) Nothing $ map (run ast) builtins
 
 p :: AST -> String
 p (car ::: cdr) = "(" ++ p car ++ plist cdr
