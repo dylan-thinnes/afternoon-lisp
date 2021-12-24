@@ -17,27 +17,6 @@ errIf _ False = pure ()
 
 infixr 1 !
 
-splitWhile :: (a -> Bool) -> [a] -> ([a], [a])
-splitWhile pred as =
-  let front = takeWhile pred as
-      back = dropWhile pred as
-  in
-  (front, back)
-
-data Token = Open | Close | Str String
-  deriving (Eq, Show)
-
-tokenize :: String -> [Token]
-tokenize str = head [match | (match, "") <- readP_to_S parser str]
-  where
-    parser :: ReadP [Token]
-    parser = between skipSpaces skipSpaces $ sepBy (choice [symbol, open, close]) skipSpaces
-
-    symbol, open, close :: ReadP Token
-    symbol = Str <$> munch1 isAlphaNum
-    open = char '(' >> pure Open
-    close = char ')' >> pure Close
-
 data AST = AST ::: AST | Nil | Symbol String
   deriving (Show, Eq)
 
