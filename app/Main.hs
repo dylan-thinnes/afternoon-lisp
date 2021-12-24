@@ -5,9 +5,23 @@ import Debug.Trace
 import Text.ParserCombinators.ReadP
 import Control.Monad
 import Control.Applicative
+import Control.Exception
 
 main :: IO ()
-main = putStrLn "Hello, Haskell!"
+main = repl
+
+repl :: IO ()
+repl = do
+  -- read, eval
+  result <- try $ join $ evaluate . e . r <$> getLine
+
+  -- print
+  case result of
+    Left (SomeException e) -> putStrLn $ "ERROR: " ++ displayException e
+    Right ast -> putStrLn $ p ast
+
+  -- loop
+  repl
 
 errIf :: String -> Bool -> Either String ()
 errIf mess True = Left mess
