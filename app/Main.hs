@@ -13,7 +13,8 @@ main = repl
 repl :: IO ()
 repl = do
   -- read, eval
-  result <- try $ join $ evaluate . e . r <$> getLine
+  line <- getLine
+  result <- try $ evaluate $ e $ r line
 
   -- print
   case result of
