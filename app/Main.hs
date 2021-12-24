@@ -6,12 +6,21 @@ import Text.ParserCombinators.ReadP
 import Control.Monad
 import Control.Applicative
 import Control.Exception
+import System.IO
 
 main :: IO ()
 main = repl
 
 repl :: IO ()
 repl = do
+  hSetBuffering stdout NoBuffering
+  closed <- isEOF
+  if closed
+     then putStrLn "Goodbye!"
+     else rep >> repl
+
+rep :: IO ()
+rep = do
   -- read, eval
   line <- getLine
   result <- try $ evaluate $ e $ r line
@@ -20,9 +29,6 @@ repl = do
   case result of
     Left (SomeException e) -> putStrLn $ "ERROR: " ++ displayException e
     Right ast -> putStrLn $ p ast
-
-  -- loop
-  repl
 
 errIf :: String -> Bool -> Either String ()
 errIf mess True = Left mess
