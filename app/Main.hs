@@ -41,7 +41,10 @@ flatten tail = [tail]
 infixr :::
 
 r :: String -> AST
-r str = head [match | (match, "") <- readP_to_S parser str]
+r str =
+  case [match | (match, "") <- readP_to_S parser str] of
+    [] -> error "No parse."
+    (head:_) -> head
   where
     parser :: ReadP AST
     parser = choice [atom, list]
