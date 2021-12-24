@@ -72,6 +72,7 @@ e ast
   = case result of
       Left err -> error err
       Right ast -> ast
+e (Symbol fName ::: args) = error $ "No function with name " ++ show fName
 e sym@(Symbol _) = sym
 e sym@Nil = sym
 e exp = error $ "Got " ++ show exp
@@ -85,7 +86,8 @@ run (Symbol call ::: args) builtin
     let argList = flatten args
     let argCount = length argList - 1
     argCount /= cardinality builtin !
-      "Wrong number of args (expected " ++ show argCount ++ ", got " ++ show (cardinality builtin) ++ ")"
+      "Wrong number of args for builtin `" ++ call ++ "`\
+      \ (got " ++ show argCount ++ ", expected " ++ show (cardinality builtin) ++ ")"
     last argList /= Nil !
       "Non-list args (does not end in Nil)"
     pure $ handler builtin (init argList)
